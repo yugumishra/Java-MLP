@@ -1,0 +1,783 @@
+package ann;
+
+import java.awt.image.DataBufferByte;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Random;
+import java.util.Scanner;
+
+import javax.imageio.ImageIO;
+
+public class Main {
+	public static int NUM_IMAGES;
+	public static double LEARNING_RATE = 0.05;
+
+	static int[] labels;
+	static byte[][] images;
+
+	static int[] testLabels;
+	static byte[][] testImages;
+
+	public static void readMainSet(String imagesFile, String labelsFile) throws Exception {
+		File f = new File(labelsFile);
+		FileInputStream fin = new FileInputStream(f);
+		byte[] data = fin.readAllBytes();
+
+		ByteBuffer buff = ByteBuffer.wrap(data);
+
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+
+		labels = new int[NUM_IMAGES];
+
+		for (int i = 0; i < NUM_IMAGES; i++) {
+			int num = (int) buff.get();
+			labels[i] = num;
+		}
+
+		fin.close();
+
+		f = new File(imagesFile);
+		fin = new FileInputStream(f);
+
+		data = fin.readAllBytes();
+
+		buff = ByteBuffer.wrap(data);
+
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		int sizeX = buff.getInt();
+		int sizeY = buff.getInt();
+
+		int imageSize = sizeX * sizeY;
+		images = new byte[NUM_IMAGES][imageSize];
+		for (int i = 0; i < NUM_IMAGES; i++) {
+			byte[] image = new byte[imageSize];
+			for (int j = 0; j < imageSize; j++) {
+				image[j] = buff.get();
+			}
+			images[i] = image;
+		}
+
+		fin.close();
+	}
+
+	public static void readTestingSet(String imagesFile, String labelsFile) throws Exception {
+		File f = new File(labelsFile);
+		FileInputStream fin = new FileInputStream(f);
+		byte[] data = fin.readAllBytes();
+
+		ByteBuffer buff = ByteBuffer.wrap(data);
+
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+
+		testLabels = new int[NUM_IMAGES];
+
+		for (int i = 0; i < NUM_IMAGES; i++) {
+			int num = (int) buff.get();
+			testLabels[i] = num;
+		}
+
+		fin.close();
+
+		f = new File(imagesFile);
+		fin = new FileInputStream(f);
+
+		data = fin.readAllBytes();
+
+		buff = ByteBuffer.wrap(data);
+
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		int sizeX = buff.getInt();
+		int sizeY = buff.getInt();
+
+		int imageSize = sizeX * sizeY;
+		testImages = new byte[NUM_IMAGES][imageSize];
+		for (int i = 0; i < NUM_IMAGES; i++) {
+			byte[] image = new byte[imageSize];
+			for (int j = 0; j < imageSize; j++) {
+				image[j] = buff.get();
+			}
+			testImages[i] = image;
+		}
+
+		fin.close();
+	}
+
+	public static void saveAnn(Ann ann) throws Exception {
+		FileOutputStream fos = new FileOutputStream("ann.bin");
+
+		DataOutputStream dos = new DataOutputStream(fos);
+
+		// put in metadata first
+		NetworkParameters params = ann.params;
+		// first save number of layers
+		dos.writeInt(params.layers.length);
+		// then the length of each layer
+		for (int i = 0; i < params.layers.length; i++) {
+			dos.writeInt(params.layers[i].length);
+		}
+
+		// then write weight matrix followed by bias vector for each layer
+		for (int a = 0; a < ann.weightMatrices.length; a++) {
+			Matrix weightMatrix = ann.weightMatrices[a];
+			for (int i = 0; i < weightMatrix.matrix.length; i++) {
+				for (int j = 0; j < weightMatrix.matrix[i].length; j++) {
+					dos.writeDouble(weightMatrix.matrix[i][j]);
+				}
+			}
+
+			Vector biasVector = ann.biasVectors[a];
+			for (int i = 0; i < biasVector.vector.length; i++) {
+				dos.writeDouble(biasVector.vector[i]);
+			}
+		}
+
+		dos.close();
+
+		fos.close();
+	}
+
+	public static Ann readAnn() throws Exception {
+		// init file + open it
+		File f = new File("ann.bin");
+		FileInputStream fin = new FileInputStream(f);
+		// read all bytes
+		byte[] data = fin.readAllBytes();
+
+		// wrap in bytebuffer to read
+		ByteBuffer buff = ByteBuffer.wrap(data);
+
+		// read metadata
+		int numLayers = buff.getInt();
+		int[] layerLengths = new int[numLayers];
+		for (int i = 0; i < numLayers; i++) {
+			// read each layer's length
+			layerLengths[i] = buff.getInt();
+			System.out.println(layerLengths[i]);
+		}
+
+		// instantiate the ann object
+		Ann ann = new Ann(new NetworkParameters(layerLengths));
+
+		// update the weight matrices & bias vectors with whats in the file
+		for (int l = 1; l < numLayers; l++) {
+			//read matrix
+			Matrix weightMatrix = ann.weightMatrices[l-1];
+			for(int i= 0; i< layerLengths[l]; i++) {
+				for(int j= 0; j< layerLengths[l-1]; j++) {
+					weightMatrix.matrix[i][j] = buff.getDouble();
+					System.out.println(weightMatrix.matrix[i][j]);
+				}
+			}
+			
+			//read bias vector
+			for(int i = 0; i< layerLengths[l]; i++) {
+				ann.biasVectors[l-1].vector[i] = buff.getDouble();
+				System.out.println(ann.biasVectors[l-1].vector[i]);
+			}
+		}
+		
+		//close input stream to stop any resource leaks
+		fin.close();
+		
+		//finally return ann
+		return ann;
+	}
+
+	public static byte[] readMyFile() throws Exception {
+		byte[] abgrImage = ((DataBufferByte) ImageIO.read(new File("my_8.png")).getRaster().getDataBuffer()).getData();
+		byte[] image = new byte[abgrImage.length / 4];
+		for (int i = 0; i < image.length; i++) {
+			byte actual = (byte) ((abgrImage[i * 4 + 1] + abgrImage[i * 4 + 2] + abgrImage[i * 4 + 3]) / 3);
+			image[i] = actual;
+		}
+		return image;
+	}
+	
+	public static void trainAnn() throws Exception{
+		
+		readMainSet("train-images.idx3-ubyte", "train-labels.idx1-ubyte");
+
+		// create ann
+		int[] lengths = { 28 * 28, 20, 10 };
+		NetworkParameters annParameters = new NetworkParameters(lengths);
+		Ann ann = new Ann(annParameters);
+
+		// do some training
+
+		// first split the batch up no replacement
+		ArrayList<Integer> samples = new ArrayList<Integer>();
+		for (int i = 0; i < NUM_IMAGES; i++)
+			samples.add(i);
+
+		BackpropResults average = new BackpropResults(annParameters);
+
+		// init some parameters
+		int n = 32;
+		double scale = (1.0) / ((double) n);
+		int numMiniBatches = (int) Math.floor(60000.0 / n);
+
+		// training for 2 epochs
+		for (int epoch = 0; epoch < 15; epoch++) {
+			long start = System.currentTimeMillis();
+			// pre epoch shuffle
+			Collections.shuffle(samples);
+			Collections.shuffle(samples);
+
+			// init final error variable (for printing purposes)
+			double finalError = 0.0;
+
+			// do each minibatch
+			average.zero(); // just in case
+			for (int i = 0; i < n * numMiniBatches; i++) {
+				// get a random training image
+				int index = samples.get(i);
+				// vectorize
+				Vector input = new Vector(28 * 28);
+				input.parseBytes(images[index]);
+
+				// do the backpropagation
+				BackpropResults singleResults = ann.backprop(input, labels[index]);
+
+				// add this backpropagation's results to the aggregate (scale first)
+				for (int j = 0; j < average.biasGradients.length; j++) {
+					average.biasGradients[j].addVector(singleResults.biasGradients[j].scale(scale));
+					average.weightGradients[j].add(singleResults.weightGradients[j].scale(scale));
+				}
+				average.error += singleResults.error * scale;
+
+				// check if the aggregate has been totally accumulated
+				if (i % n == 0) {
+					// we do gradient descent based on this batch
+					ann.descendGradient(average);
+					// just for posterity (lol)
+					if (i % (n * numMiniBatches) == 0)
+						finalError = average.error;
+					// zero the average prior to next batch training
+					average.zero();
+				}
+			}
+
+			double time = ((double) (System.currentTimeMillis() - start)) / 1000.0;
+
+			// print out per epoch final error
+			System.out.println("Epoch " + (epoch + 1) + ", ANN's error: " + finalError + ". Time Taken: " + time);
+
+			// decay the learning rate
+			LEARNING_RATE *= 0.65;
+		}
+
+		// save this ann to a file
+		// really we're saving the weights
+		saveAnn(ann);
+		
+		//just test also
+		testAnn(ann);
+	}
+	
+	public static void testAnn(Ann ann) throws Exception {
+		readTestingSet("t10k-images.idx3-ubyte", "t10k-labels.idx1-ubyte");
+		byte[] seven = readMyFile();
+
+		// randomize the testing dataset
+		ArrayList<Integer>samples = new ArrayList<Integer>();
+		for (int i = 0; i < 10000; i++) {
+			samples.add(i);
+		}
+		Collections.shuffle(samples);
+
+		int numSuccessful = 0;
+		// do testing over the first 9990 testing images
+		for (int i = 0; i < samples.size(); i++) {
+			// get random testing image
+			int index = samples.get(i);
+			// vectorize the image
+			Vector input = new Vector(28 * 28);
+			input.parseBytes(testImages[index]);
+
+			// feed it to the ann and get the output
+			Vector prediction = ann.forward(input)[3];
+
+			// determine the ann's selection (which digit did it predict)
+			int max = 0;
+			for (int j = 1; j < prediction.vector.length; j++)
+				if (prediction.vector[j] > prediction.vector[max])
+					max = j;
+
+			// check if it was correct
+			if (max == testLabels[index]) {
+				numSuccessful++;
+			}
+		}
+
+		// print out success ratio
+		double ratio = (double) numSuccessful;
+		ratio /= (10000.0);
+		ratio *= 100.0;
+		System.out.println("Testing on 10000 accuracy (%): " + ratio);
+
+		// do final prediction on my 8
+		Vector input = new Vector(28 * 28);
+		input.parseBytes(eight);
+		// feed forward
+		Vector prediction = ann.forward(input)[3];
+		System.out.println(argmax(prediction));
+	}
+	
+	public static int argmax(Vector prediction) {
+		int maxIndex = 0;
+		for(int i = 1; i < prediction.vector.length; i++) {
+			if(prediction.vector[i] > prediction.vector[maxIndex]) {
+				maxIndex = i;
+			}
+		}
+		
+		return maxIndex;
+	}
+
+	public static void main(String[] args) throws Exception {
+		System.out.println("Train (0) or read (1)?");
+		Scanner user = new Scanner(System.in);
+		String resp = user.next();
+		if(resp.contains("0")) {
+			trainAnn();
+		}else if(resp.contains("1")) {
+			//read
+			Ann ann = readAnn();
+			testAnn(ann);
+		}
+		
+		user.close();
+	}
+}
+
+class Vector {
+	// encodes an n-dimensional column vector
+	double[] vector;
+
+	public Vector(int n) {
+		vector = new double[n];
+	}
+
+	public Vector(Vector v) {
+		vector = new double[v.vector.length];
+		for (int i = 0; i < vector.length; i++)
+			vector[i] = v.vector[i];
+	}
+
+	// parse image method
+	public void parseBytes(byte[] arr) {
+		// assume arr.length = vector.length
+		for (int i = 0; i < arr.length; i++) {
+			vector[i] = (arr[i] & 0xFF) / 255.0;
+		}
+	}
+
+	// random init
+	public void randomInit() {
+		Random rand = new Random();
+		for (int i = 0; i < vector.length; i++) {
+			vector[i] = rand.nextGaussian();
+		}
+	}
+
+	public void zeroInit() {
+		for (int i = 0; i < vector.length; i++) {
+			vector[i] = 0.0;
+		}
+	}
+
+	// matrix multiply with vector
+	public static Vector matrixMultiply(Matrix m, Vector v) {
+		if (m.matrix[0].length != v.vector.length)
+			return null;
+		// now multiply
+		Vector res = new Vector(m.matrix.length);
+		for (int i = 0; i < res.vector.length; i++) {
+			double val = 0.0;
+			for (int j = 0; j < v.vector.length; j++) {
+				val += v.vector[j] * m.matrix[i][j];
+			}
+			res.vector[i] = val;
+		}
+		return res;
+	}
+
+	// matrix multiply with vector, except with the transpose of vector
+	public static Vector matrixMultiplyTransposed(Matrix m, Vector v) {
+		if (m.matrix.length != v.vector.length)
+			return null;
+		// flip dimen
+		Vector res = new Vector(m.matrix[0].length);
+		for (int i = 0; i < res.vector.length; i++) {
+			double val = 0.0;
+			for (int j = 0; j < m.matrix.length; j++) {
+				// swap order of traversal
+				val += v.vector[j] * m.matrix[j][i];
+			}
+			res.vector[i] = val;
+		}
+		return res;
+	}
+
+	// add a vector to this vector
+	public void addVector(Vector v) {
+		for (int i = 0; i < this.vector.length; i++) {
+			this.vector[i] += v.vector[i];
+		}
+	}
+
+	public void subtractVector(Vector v) {
+		for (int i = 0; i < this.vector.length; i++) {
+			this.vector[i] -= v.vector[i];
+		}
+	}
+
+	// activation function
+	private double activate(double x) {
+		return (x > 0) ? (x) : (0);
+	}
+
+	private double activateDerivative(double x) {
+		return (x > 0) ? (1) : (0);
+	}
+
+	// vectorial form
+	public void activate(int layer) {
+		if (layer == 1) {
+			double max = -Double.MAX_VALUE;
+			for (int i = 0; i < vector.length; i++)
+				if (vector[i] > max)
+					max = vector[i];
+			double sum = 0.0;
+			for (int i = 0; i < vector.length; i++)
+				sum += Math.exp(vector[i] - max);
+			for (int i = 0; i < vector.length; i++)
+				vector[i] = Math.exp(vector[i] - max) / sum;
+		} else {
+			for (int i = 0; i < vector.length; i++)
+				vector[i] = activate(vector[i]);
+		}
+	}
+
+	// another vectorial form
+	// replaces each component in this vector with the activation function's
+	// derivative at that point
+	public void activateDerivative(int layer) {
+		if (layer != 2) {
+			for (int i = 0; i < vector.length; i++)
+				vector[i] = activateDerivative(vector[i]);
+		} else {
+			System.out.println("WHAT");
+		}
+	}
+
+	@Override
+	public String toString() {
+		String msg = "(";
+		for (int i = 0; i < vector.length; i++) {
+			msg += String.valueOf(vector[i]);
+			if (i != vector.length - 1) {
+				msg += ", ";
+			} else {
+				msg += ")";
+			}
+		}
+		return msg;
+	}
+
+	// pretty self explanatory
+	// sum the components
+	public double sumComponents() {
+		double sum = 0.0;
+		for (int i = 0; i < vector.length; i++)
+			sum += vector[i];
+		return sum;
+	}
+
+	// hamard product implementation
+	public void hamardProduct(Vector in) {
+		for (int i = 0; i < vector.length; i++)
+			vector[i] *= in.vector[i];
+	}
+
+	public static Vector hamardProduct(Vector in1, Vector in2) {
+		for (int i = 0; i < in1.vector.length; i++)
+			in1.vector[i] *= in2.vector[i];
+		return in1;
+	}
+
+	// scales and returns a new vector (not state editing)
+	public Vector scale(double scale) {
+		Vector res = new Vector(vector.length);
+		for (int i = 0; i < res.vector.length; i++) {
+			res.vector[i] = vector[i] * scale;
+		}
+		return res;
+	}
+}
+
+class Matrix {
+	// encodes a MxN matrix
+	double[][] matrix;
+
+	public Matrix(int rows, int columns) {
+		// random init
+		matrix = new double[rows][columns];
+	}
+
+	public void randomInit(double skew) {
+		Random rand = new Random();
+		for (int i = 0; i < matrix.length; i++) {
+			for (int j = 0; j < matrix[i].length; j++) {
+				matrix[i][j] = rand.nextGaussian() * skew;
+			}
+		}
+	}
+
+	public void zeroInit() {
+		for (int i = 0; i < matrix.length; i++) {
+			for (int j = 0; j < matrix[i].length; j++) {
+				matrix[i][j] = 0.0;
+			}
+		}
+	}
+
+	public static Matrix outerProduct(Vector a, Vector b) {
+		Matrix res = new Matrix(a.vector.length, b.vector.length);
+		for (int i = 0; i < a.vector.length; i++) {
+			for (int j = 0; j < b.vector.length; j++) {
+				res.matrix[i][j] = a.vector[i] * b.vector[j];
+			}
+		}
+		return res;
+	}
+
+	// scales and returns a new matrix (not state editing)
+	public Matrix scale(double scale) {
+		Matrix res = new Matrix(matrix.length, matrix[0].length);
+		for (int i = 0; i < res.matrix.length; i++) {
+			for (int j = 0; j < res.matrix[0].length; j++) {
+				res.matrix[i][j] = matrix[i][j] * scale;
+			}
+		}
+		return res;
+	}
+
+	// state editing
+	// same as vector (component wise subtraction)
+	public void subtract(Matrix m) {
+		for (int i = 0; i < this.matrix.length; i++) {
+			for (int j = 0; j < this.matrix[i].length; j++) {
+				this.matrix[i][j] -= m.matrix[i][j];
+			}
+		}
+	}
+
+	// state editing
+	// same as vector (component wise addition)
+	public void add(Matrix m) {
+		for (int i = 0; i < this.matrix.length; i++) {
+			for (int j = 0; j < this.matrix[i].length; j++) {
+				this.matrix[i][j] += m.matrix[i][j];
+			}
+		}
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder msg = new StringBuilder();
+		for (int i = 0; i < matrix.length; i++) {
+			msg.append("(");
+			for (int j = 0; j < matrix[i].length; j++) {
+				msg.append(matrix[i][j]);
+				if (j != matrix[i].length - 1)
+					msg.append(", ");
+			}
+			msg.append(")\n");
+		}
+		return msg.toString();
+	}
+}
+
+class Ann {
+	Matrix[] weightMatrices;
+	Vector[] biasVectors;
+
+	NetworkParameters params;
+
+	public Ann(NetworkParameters params) {
+		this.params = params;
+
+		weightMatrices = new Matrix[params.layers.length - 1];
+		biasVectors = new Vector[params.layers.length - 1];
+
+		// start at i = 1 because we ignore input layer (no bias vector for input layer)
+		for (int i = 1; i < params.layers.length; i++) {
+			int prevLength = params.layers[i - 1].length;
+			int length = params.layers[i].length;
+
+			biasVectors[i - 1] = new Vector(length);
+			biasVectors[i - 1].randomInit();
+
+			weightMatrices[i - 1] = new Matrix(length, prevLength);
+			weightMatrices[i - 1].randomInit(Math.sqrt(2.0 / (prevLength + length)));
+		}
+	}
+
+	public Vector[] forward(Vector input) {
+		Vector[] everyVector = new Vector[2 * weightMatrices.length];
+		for (int i = 0; i < weightMatrices.length; i++) {
+			if (i == 0) {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], input);
+			} else {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], everyVector[i - 1]);
+			}
+
+			everyVector[i * 2].addVector(biasVectors[i]);
+			everyVector[i * 2 + 1] = new Vector(everyVector[i * 2]);
+			everyVector[i * 2 + 1].activate(i);
+		}
+		return everyVector;
+	}
+
+	public BackpropResults backprop(Vector input, int digit) {
+		Vector[] everyVector = forward(input);
+		Vector[] layerErrors = new Vector[weightMatrices.length];
+		// construct actual value vector
+		Vector actual = Ann.constructActual(digit);
+		// partial of cost wrt activation of final nodes is just the activation - actual
+		// then multiply by d/dx activation for partial of cost wrt of z of final layer
+		// (first backprop chain rule use)
+		// also error of layer f (final layer) (bp eq 1)
+		Vector deriv = new Vector(everyVector[everyVector.length - 2]);
+		deriv.activateDerivative(0);
+		layerErrors[weightMatrices.length - 1] = new Vector(everyVector[everyVector.length - 1]);
+		layerErrors[weightMatrices.length - 1].subtractVector(actual);
+		double error = 0.0;
+		for (int i = 0; i < layerErrors[weightMatrices.length - 1].vector.length; i++) {
+			error += Math.pow(layerErrors[weightMatrices.length - 1].vector[i], 2.0);
+		}
+		error *= 0.5;
+		// layerErrors[weightMatrices.length - 1].hamardProduct(deriv);
+
+		// then recursively apply bp eq 2 to propagate error through layers
+		for (int l = weightMatrices.length - 1; l > 0; l--) {
+			// calc deriv of z of the previous layer
+			Vector prevDeriv = new Vector(everyVector[(l - 1) * 2]);
+			prevDeriv.activateDerivative(l - 1);
+
+			// then calc error
+			layerErrors[l - 1] = Vector.matrixMultiplyTransposed(weightMatrices[l], layerErrors[l]);
+			layerErrors[l - 1].hamardProduct(prevDeriv);
+		}
+		BackpropResults res = new BackpropResults(this.params);
+		res.biasGradients = new Vector[weightMatrices.length];
+		res.weightGradients = new Matrix[weightMatrices.length];
+		// now update weights & biases using gradient descent (since we can calculate
+		// gradient based on layer errors)
+		for (int l = 0; l < weightMatrices.length; l++) {
+			// bp eq 3
+			Matrix weightGradient = Matrix.outerProduct(layerErrors[l],
+					(l == 0) ? (input) : (everyVector[(l - 1) * 2 + 1]));
+			res.weightGradients[l] = weightGradient.scale(Main.LEARNING_RATE);
+			// bp eq 4
+			res.biasGradients[l] = layerErrors[l].scale(Main.LEARNING_RATE);
+		}
+		res.error = error;
+		return res;
+	}
+
+	public void descendGradient(BackpropResults average) {
+		for (int l = 0; l < weightMatrices.length; l++) {
+			weightMatrices[l].subtract(average.weightGradients[l]);
+			biasVectors[l].subtractVector(average.biasGradients[l]);
+		}
+	}
+
+	public static Vector constructActual(int digit) {
+		Vector v = new Vector(10);
+		for (int i = 0; i < v.vector.length; i++)
+			v.vector[i] = 0.0;
+		v.vector[digit] = 1.0;
+		return v;
+	}
+}
+
+class BackpropResults {
+	Vector[] biasGradients;
+	Matrix[] weightGradients;
+	double error;
+
+	public BackpropResults(NetworkParameters params) {
+		weightGradients = new Matrix[params.layers.length - 1];
+		biasGradients = new Vector[params.layers.length - 1];
+
+		// start at i = 1 because we ignore input layer (no bias vector for input layer)
+		for (int i = 1; i < params.layers.length; i++) {
+			int prevLength = params.layers[i - 1].length;
+			int length = params.layers[i].length;
+
+			biasGradients[i - 1] = new Vector(length);
+			biasGradients[i - 1].zeroInit();
+
+			weightGradients[i - 1] = new Matrix(length, prevLength);
+			weightGradients[i - 1].zeroInit();
+		}
+	}
+
+	public void zero() {
+		// make everything set to 0
+		for (int i = 0; i < biasGradients.length; i++) {
+			biasGradients[i].zeroInit();
+		}
+
+		for (int a = 0; a < weightGradients.length; a++) {
+			weightGradients[a].zeroInit();
+		}
+
+		error = 0.0;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder msg = new StringBuilder();
+		msg.append("Bias Vectors: \n");
+		for (int i = 0; i < biasGradients.length; i++)
+			msg.append(biasGradients[i].toString() + "\n");
+		msg.append("Weight Gradients: \n");
+		for (int i = 0; i < weightGradients.length; i++)
+			msg.append(weightGradients[i].toString() + "\n");
+		return msg.toString();
+	}
+}
+
+class NetworkParameters {
+	Layer[] layers;
+
+	public NetworkParameters(int[] layerLengths) {
+		// layerLengths array has to be greater than 1 layer
+		if (layerLengths.length <= 1) {
+			System.err.println("Cannot create network with 1 layer");
+			System.exit(0);
+		}
+		layers = new Layer[layerLengths.length];
+		for (int i = 0; i < layerLengths.length; i++) {
+			Layer layer = new Layer();
+			layer.length = layerLengths[i];
+			layers[i] = layer;
+		}
+	}
+}
+
+class Layer {
+	int length;
+}

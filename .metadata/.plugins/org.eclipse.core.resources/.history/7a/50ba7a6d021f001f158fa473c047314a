@@ -1,0 +1,514 @@
+package ann;
+
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.io.File;
+import java.io.FileInputStream;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+
+import javax.imageio.ImageIO;
+
+public class Main {
+	public static int NUM_IMAGES;
+	public static final double LEARNING_RATE = 0.001f;
+	
+	static int[] labels;
+	static byte[][] images;
+	
+	static int[] testLabels;
+	static byte[][] testImages;
+	
+	public static void readMainSet(String imagesFile, String labelsFile) throws Exception{
+		File f = new File(labelsFile);
+		FileInputStream fin = new FileInputStream(f);
+		byte[] data = fin.readAllBytes();
+		
+		ByteBuffer buff = ByteBuffer.wrap(data);
+		
+		
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		
+		labels = new int[NUM_IMAGES];
+		
+		for(int i = 0; i< NUM_IMAGES; i++) {
+			int num = (int) buff.get();
+			labels[i] = num;
+		}
+		
+		fin.close();
+		
+		f = new File(imagesFile);
+		fin = new FileInputStream(f);
+		
+		data = fin.readAllBytes();
+		
+		buff = ByteBuffer.wrap(data);
+		
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		int sizeX = buff.getInt();
+		int sizeY = buff.getInt();
+		
+		int imageSize = sizeX * sizeY;
+		images = new byte[NUM_IMAGES][imageSize];
+		for(int i = 0; i< NUM_IMAGES; i++) {
+			byte[] image = new byte[imageSize];
+			for(int j = 0; j< imageSize; j++) {
+				image[j] = buff.get();
+			}
+			images[i] = image;
+		}
+		
+		fin.close();
+	}
+	
+	public static void readTestingSet(String imagesFile, String labelsFile) throws Exception{
+		File f = new File(labelsFile);
+		FileInputStream fin = new FileInputStream(f);
+		byte[] data = fin.readAllBytes();
+		
+		ByteBuffer buff = ByteBuffer.wrap(data);
+		
+		
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		
+		testLabels = new int[NUM_IMAGES];
+		
+		for(int i = 0; i< NUM_IMAGES; i++) {
+			int num = (int) buff.get();
+			testLabels[i] = num;
+		}
+		
+		fin.close();
+		
+		f = new File(imagesFile);
+		fin = new FileInputStream(f);
+		
+		data = fin.readAllBytes();
+		
+		buff = ByteBuffer.wrap(data);
+		
+		buff.getInt();
+		NUM_IMAGES = buff.getInt();
+		int sizeX = buff.getInt();
+		int sizeY = buff.getInt();
+		
+		int imageSize = sizeX * sizeY;
+		testImages = new byte[NUM_IMAGES][imageSize];
+		for(int i = 0; i< NUM_IMAGES; i++) {
+			byte[] image = new byte[imageSize];
+			for(int j = 0; j< imageSize; j++) {
+				image[j] = buff.get();
+			}
+			testImages[i] = image;
+		}
+		
+		fin.close();
+	}
+	
+	public static void main(String[] args) throws Exception {
+		readTestingSet("t10k-images.idx3-ubyte", "t10k-labels.idx1-ubyte");
+		readMainSet("train-images.idx3-ubyte", "train-labels.idx1-ubyte");
+		
+		
+		//create ann
+		Ann ann = new Ann(28*28);
+		
+		
+		//do some training
+		
+		//first split the batch up no replacement
+		ArrayList<Integer> samples = new ArrayList<Integer>();
+		for(int i =0; i< NUM_IMAGES; i++) samples.add(i);
+		Collections.shuffle(samples);
+		
+		//training
+		BackpropResults average = new BackpropResults();
+		//sample size
+		int n = 50;
+		double scale = (1.0) / ((double) n);
+		for(int i =0; i< samples.size()-10; i++) {
+			int index = samples.get(i);
+			Vector input = new Vector(28 * 28);
+			input.parseBytes(images[index]);
+			
+			BackpropResults singleResults = ann.backprop(input, labels[index]);
+			if(i % n == 0 && i != 0) {
+				//we do gradient descent actually
+				ann.descendGradient(average);
+				
+				for(int j =0 ; j< average.biasGradients.length; j++) {
+					average.biasGradients[j].addVector(singleResults.biasGradients[j].scale(scale));
+					average.weightGradients[j].add(singleResults.weightGradients[j].scale(scale));
+				}
+				average.error = singleResults.error*scale;
+				if(i % 1000 == 0) System.out.println("Just descended using the gradient!!! Error: " + average.error);
+			}else if(i != 0){
+				//just add it to the existing
+				for(int j =0 ; j< average.biasGradients.length; j++) {
+					average.biasGradients[j].addVector(singleResults.biasGradients[j].scale(scale));
+					average.weightGradients[j].add(singleResults.weightGradients[j].scale(scale));
+				}
+				average.error += singleResults.error*scale;
+			}else if(i == 0) {
+				average.biasGradients = singleResults.biasGradients;
+				average.weightGradients = singleResults.weightGradients;
+				average.error = singleResults.error*scale;
+			}
+			
+		}
+		
+		for(int i = samples.size()-10; i< samples.size(); i++) {
+			int index = samples.get(i);
+			BufferedImage image = new BufferedImage(28, 28, BufferedImage.TYPE_BYTE_GRAY);
+			byte[] imageData = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+			for(int j= 0; j< imageData.length; j++) imageData[j] = images[index][j];
+			ImageIO.write(image, "png", new File("output" + String.valueOf(i) + ".png"));
+			
+			//create vector rep of img
+			Vector input = new Vector(28 * 28);
+			input.parseBytes(images[index]);
+			
+			Vector prediction = ann.forward(input)[5];
+			System.out.println(labels[index] + ": " + prediction.toString());
+		}
+		
+		/*
+		//get random image & write it so we can see
+		int randIndex = (int) (Math.random() * NUM_IMAGES);
+		BufferedImage output = new BufferedImage(sizeX, sizeY, BufferedImage.TYPE_BYTE_GRAY);
+		byte[] imageData = ((DataBufferByte) output.getRaster().getDataBuffer()).getData();
+		for(int i =0; i< imageData.length; i++) imageData[i] = images[randIndex][i];
+		ImageIO.write(output, "png", new File("output.png"));
+		
+		//create vectorial rep of the image
+		Vector input = new Vector(imageSize);
+		input.parseBytes(images[randIndex]);
+		Vector v = new Vector(3);
+		v.vector[0] = 1;
+		v.vector[1] = 2;
+		v.vector[2] = 3;
+		Matrix m = new Matrix(4,3);
+		m.matrix[0][0] = 1;
+		m.matrix[1][0] = 3;
+		m.matrix[2][0] = 2;
+		m.matrix[3][0] = 1;
+		
+		m.matrix[0][1] = 15;
+		m.matrix[1][1] = 0;
+		m.matrix[2][1] = 2;
+		m.matrix[3][1] = 34;
+		
+		m.matrix[0][2] = 16;
+		m.matrix[1][2] = 0;
+		m.matrix[2][2] = 0;
+		m.matrix[3][2] = 1;
+		
+		Vector output = Vector.matrixMultiply(m, v);
+		System.out.println(output);*/
+	}
+}
+
+class Vector {
+	// encodes an n-dimensional column vector
+	double[] vector;
+
+	public Vector(int n) {
+		vector = new double[n];
+	}
+
+	public Vector(Vector v) {
+		vector = new double[v.vector.length];
+		for (int i = 0; i < vector.length; i++)
+			vector[i] = v.vector[i];
+	}
+
+	// parse image method
+	public void parseBytes(byte[] arr) {
+		// assume arr.length = vector.length
+		for (int i = 0; i < arr.length; i++) {
+			vector[i] = (arr[i] & 0xFF) / 256.0;
+		}
+	}
+
+	// random init
+	public void randomInit() {
+		for (int i = 0; i < vector.length; i++) {
+			vector[i] = Math.random();
+		}
+	}
+
+	// matrix multiply with vector
+	public static Vector matrixMultiply(Matrix m, Vector v) {
+		if (m.matrix[0].length != v.vector.length)
+			return null;
+		// now multiply
+		Vector res = new Vector(m.matrix.length);
+		for (int i = 0; i < res.vector.length; i++) {
+			double val = 0.0;
+			for (int j = 0; j < v.vector.length; j++) {
+				val += v.vector[j] * m.matrix[i][j];
+			}
+			res.vector[i] = val;
+		}
+		return res;
+	}
+
+	// matrix multiply with vector, except with the transpose of vector
+	public static Vector matrixMultiplyTransposed(Matrix m, Vector v) {
+		if (m.matrix.length != v.vector.length)
+			return null;
+		// flip dimen
+		Vector res = new Vector(m.matrix[0].length);
+		for (int i = 0; i < res.vector.length; i++) {
+			double val = 0.0;
+			for (int j = 0; j < m.matrix.length; j++) {
+				// swap order of traversal
+				val += v.vector[j] * m.matrix[j][i];
+			}
+			res.vector[i] = val;
+		}
+		return res;
+	}
+
+	// add a vector to this vector
+	public void addVector(Vector v) {
+		for (int i = 0; i < this.vector.length; i++) {
+			this.vector[i] += v.vector[i];
+		}
+	}
+
+	public void subtractVector(Vector v) {
+		for (int i = 0; i < this.vector.length; i++) {
+			this.vector[i] -= v.vector[i];
+		}
+	}
+
+	// activation function
+	private double activate(double x) {
+		return Math.max(0.0, x);
+	}
+
+	private double activateDerivative(double x) {
+		return (x < 0) ? (0) : (1);
+	}
+
+	// vectorial form
+	public void activate() {
+		for (int i = 0; i < vector.length; i++)
+			vector[i] = activate(vector[i]);
+	}
+
+	// another vectorial form
+	// replaces each component in this vector with the activation function's
+	// derivative at that point
+	public void activateDerivative() {
+		for (int i = 0; i < vector.length; i++)
+			vector[i] = activateDerivative(vector[i]);
+	}
+
+	@Override
+	public String toString() {
+		String msg = "(";
+		for (int i = 0; i < vector.length; i++) {
+			msg += String.valueOf(vector[i]);
+			if (i != vector.length - 1) {
+				msg += ", ";
+			} else {
+				msg += ")";
+			}
+		}
+		return msg;
+	}
+
+	// pretty self explanatory
+	// sum the components
+	public double sumComponents() {
+		double sum = 0.0;
+		for (int i = 0; i < vector.length; i++)
+			sum += vector[i];
+		return sum;
+	}
+
+	// hamard product implementation
+	public void hamardProduct(Vector in) {
+		for (int i = 0; i < vector.length; i++)
+			vector[i] *= in.vector[i];
+	}
+
+	public static Vector hamardProduct(Vector in1, Vector in2) {
+		for (int i = 0; i < in1.vector.length; i++)
+			in1.vector[i] *= in2.vector[i];
+		return in1;
+	}
+
+	// scales and returns a new vector (not state editing)
+	public Vector scale(double scale) {
+		Vector res = new Vector(vector.length);
+		for (int i = 0; i < res.vector.length; i++) {
+			res.vector[i] = vector[i] * scale;
+		}
+		return res;
+	}
+}
+
+class Matrix {
+	// encodes a MxN matrix
+	double[][] matrix;
+
+	public Matrix(int rows, int columns) {
+		// random init
+		matrix = new double[rows][columns];
+
+		double stddev = 1.0 / Math.sqrt(columns);
+	    for (int i = 0; i < rows; i++) {
+	        for (int j = 0; j < columns; j++) {
+	            matrix[i][j] = stddev * Math.random();
+	        }
+	    }
+	}
+
+	public static Matrix outerProduct(Vector a, Vector b) {
+		Matrix res = new Matrix(a.vector.length, b.vector.length);
+		for (int i = 0; i < a.vector.length; i++) {
+			for (int j = 0; j < b.vector.length; j++) {
+				res.matrix[i][j] = a.vector[i] * b.vector[j];
+			}
+		}
+		return res;
+	}
+
+	// scales and returns a new matrix (not state editing)
+	public Matrix scale(double scale) {
+		Matrix res = new Matrix(matrix.length, matrix[0].length);
+		for (int i = 0; i < res.matrix.length; i++) {
+			for (int j = 0; j < res.matrix[0].length; j++) {
+				res.matrix[i][j] = matrix[i][j] * scale;
+			}
+		}
+		return res;
+	}
+
+	// state editing
+	// same as vector (component wise subtraction)
+	public void subtract(Matrix m) {
+		for (int i = 0; i < this.matrix.length; i++) {
+			for (int j = 0; j < this.matrix[i].length; j++) {
+				this.matrix[i][j] -= m.matrix[i][j];
+			}
+		}
+	}
+
+	// state editing
+	// same as vector (component wise addition)
+	public void add(Matrix m) {
+		for (int i = 0; i < this.matrix.length; i++) {
+			for (int j = 0; j < this.matrix[i].length; j++) {
+				this.matrix[i][j] += m.matrix[i][j];
+			}
+		}
+	}
+}
+
+class Ann {
+	Matrix[] weightMatrices;
+	Vector[] biasVectors;
+
+	public Ann(int inputVectorSize) {
+		weightMatrices = new Matrix[3];
+		biasVectors = new Vector[3];
+
+		weightMatrices[0] = new Matrix(16, inputVectorSize);
+		weightMatrices[1] = new Matrix(16, 16);
+		weightMatrices[2] = new Matrix(10, 16);
+
+		biasVectors[0] = new Vector(16);
+		biasVectors[0].randomInit();
+		biasVectors[1] = new Vector(16);
+		biasVectors[1].randomInit();
+		biasVectors[2] = new Vector(10);
+		biasVectors[2].randomInit();
+	}
+
+	public Vector[] forward(Vector input) {
+		Vector[] everyVector = new Vector[6];
+		for (int i = 0; i < 3; i++) {
+			if (i == 0) {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], input);
+			} else {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], everyVector[i - 1]);
+			}
+
+			everyVector[i * 2].addVector(biasVectors[i]);
+			everyVector[i * 2 + 1] = new Vector(everyVector[i * 2]);
+			everyVector[i * 2 + 1].activate();
+		}
+		return everyVector;
+	}
+
+	public BackpropResults backprop(Vector input, int digit) {
+		Vector[] everyVector = forward(input);
+		Vector[] layerErrors = new Vector[3];
+		// construct actual value vector
+		Vector actual = Ann.constructActual(digit);
+		// partial of cost wrt activation of final nodes is just the activation - actual
+		// then multiply by d/dx activation for partial of cost wrt of z of final layer
+		// (first backprop chain rule use)
+		// also error of layer f (final layer) (bp eq 1)
+		Vector activationDerivative = new Vector(everyVector[5]);
+		activationDerivative.activateDerivative();
+		layerErrors[2] = new Vector(everyVector[5]);
+		layerErrors[2].subtractVector(actual);
+		double error = 0.5f * Math.pow(layerErrors[2].sumComponents(), 2);
+		layerErrors[2].hamardProduct(activationDerivative);
+
+		// then recursively apply bp eq 2 to propagate error through layers
+		for (int l = weightMatrices.length - 1; l > 0; l--) {
+			// calc deriv of z of the previous layer
+			Vector prevDeriv = new Vector(everyVector[(l - 1) * 2]);
+			prevDeriv.activateDerivative();
+
+			// then calc error
+			layerErrors[l - 1] = Vector.matrixMultiplyTransposed(weightMatrices[l], layerErrors[l]);
+			layerErrors[l - 1].hamardProduct(prevDeriv);
+		}
+		BackpropResults res = new BackpropResults();
+		res.biasGradients = new Vector[3];
+		res.weightGradients = new Matrix[3];
+		// now update weights & biases using gradient descent (since we can calculate
+		// gradient based on layer errors)
+		for (int l = 0; l < weightMatrices.length; l++) {
+			// bp eq 3
+			Matrix weightGradient = Matrix.outerProduct(layerErrors[l],
+					(l == 0) ? (input) : (everyVector[(l - 1) * 2 + 1]));
+			res.weightGradients[l] = weightGradient.scale(Main.LEARNING_RATE);
+			// bp eq 4
+			res.biasGradients[l] = layerErrors[l].scale(Main.LEARNING_RATE);
+		}
+		res.error = error;
+		return res;
+	}
+
+	public void descendGradient(BackpropResults average) {
+		for(int l = 0; l < weightMatrices.length; l++) {
+			weightMatrices[l].subtract(average.weightGradients[l]);
+			biasVectors[l].subtractVector(average.biasGradients[l]);
+		}
+	}
+
+	public static Vector constructActual(int digit) {
+		Vector v = new Vector(10);
+		v.vector[digit] = 1;
+		return v;
+	}
+}
+
+class BackpropResults {
+	Vector[] biasGradients;
+	Matrix[] weightGradients;
+	double error;
+}
