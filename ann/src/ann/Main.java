@@ -1,5 +1,6 @@
 package ann;
 
+//imports
 import java.awt.image.DataBufferByte;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -8,112 +9,174 @@ import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Random;
 import java.util.Scanner;
 
 import javax.imageio.ImageIO;
 
+
+//main class
+//runs dataset i/o, training loop, serialization of model, and hyperparameter selection
 public class Main {
+	//constants relating to training
+	//num images is the number of training images in the MNIST dataset (60k)
 	public static int NUM_IMAGES;
+	//learning rate is hyperparameter that was selected (there is lr decay)
 	public static double LEARNING_RATE = 0.05;
 
+	//class constants for the training labels (correct answers) & images themselves (byte arrays)
 	static int[] labels;
 	static byte[][] images;
-
+	
+	//similar constants for test set
 	static int[] testLabels;
 	static byte[][] testImages;
 
+	//reads the main set of MNIST images (provided the filepaths for the images and labels file)
+	//reads based off the encoding described in the MNIST doc (https://yann.lecun.com/exdb/mnist)
+	//stores in the static class members
 	public static void readMainSet(String imagesFile, String labelsFile) throws Exception {
+		//open label file
 		File f = new File(labelsFile);
 		FileInputStream fin = new FileInputStream(f);
+		
+		//read
 		byte[] data = fin.readAllBytes();
-
+		
+		//wrap in buffer for easier reading
 		ByteBuffer buff = ByteBuffer.wrap(data);
-
+		
+		//remove magic number
 		buff.getInt();
+		//get the size of the set
 		NUM_IMAGES = buff.getInt();
-
+		
+		//allocate labels based on set size
 		labels = new int[NUM_IMAGES];
-
+		
+		//populate labels array
 		for (int i = 0; i < NUM_IMAGES; i++) {
 			int num = (int) buff.get();
 			labels[i] = num;
 		}
-
+		
+		//close the label file
 		fin.close();
-
+		
+		//open image file
 		f = new File(imagesFile);
 		fin = new FileInputStream(f);
-
+		
+		//read
 		data = fin.readAllBytes();
-
+		
+		//wrap in bytebuffer for easier reading
 		buff = ByteBuffer.wrap(data);
-
+		
+		//remove magic
 		buff.getInt();
+		//once again get size of set
 		NUM_IMAGES = buff.getInt();
+		
+		//also get bounds on image size (28x28)
 		int sizeX = buff.getInt();
 		int sizeY = buff.getInt();
-
+		
+		//calculate total image size in bytes based on dimensions
 		int imageSize = sizeX * sizeY;
+		
+		//instantiate images array based on the image dimension and the set size
 		images = new byte[NUM_IMAGES][imageSize];
+		
+		//populate images into array
 		for (int i = 0; i < NUM_IMAGES; i++) {
+			//read each image as byte array
 			byte[] image = new byte[imageSize];
 			for (int j = 0; j < imageSize; j++) {
 				image[j] = buff.get();
 			}
+			//place into array
 			images[i] = image;
 		}
-
+		//close file
 		fin.close();
 	}
 
+	//same as above method but for the testing set
 	public static void readTestingSet(String imagesFile, String labelsFile) throws Exception {
+		//open label file
 		File f = new File(labelsFile);
 		FileInputStream fin = new FileInputStream(f);
+		
+		//read
 		byte[] data = fin.readAllBytes();
-
+		
+		//wrap in buffer for easier reading
 		ByteBuffer buff = ByteBuffer.wrap(data);
-
+		
+		//remove magic number
 		buff.getInt();
-		NUM_IMAGES = buff.getInt();
-
-		testLabels = new int[NUM_IMAGES];
-
-		for (int i = 0; i < NUM_IMAGES; i++) {
+		//get the size of the set
+		int numTestElements = buff.getInt();
+		
+		//allocate labels based on set size
+		testLabels = new int[numTestElements];
+		
+		//populate labels array
+		for (int i = 0; i < numTestElements; i++) {
 			int num = (int) buff.get();
 			testLabels[i] = num;
 		}
-
+		
+		//close the label file
 		fin.close();
-
+		
+		//open image file
 		f = new File(imagesFile);
 		fin = new FileInputStream(f);
-
+		
+		//read
 		data = fin.readAllBytes();
-
+		
+		//wrap in bytebuffer for easier reading
 		buff = ByteBuffer.wrap(data);
-
+		
+		//remove magic
 		buff.getInt();
-		NUM_IMAGES = buff.getInt();
+		//once again get size of set
+		numTestElements = buff.getInt();
+		
+		//also get bounds on image size (28x28)
 		int sizeX = buff.getInt();
 		int sizeY = buff.getInt();
-
+		
+		//calculate total image size in bytes based on dimensions
 		int imageSize = sizeX * sizeY;
-		testImages = new byte[NUM_IMAGES][imageSize];
-		for (int i = 0; i < NUM_IMAGES; i++) {
+		
+		//instantiate images array based on the image dimension and the set size
+		testImages = new byte[numTestElements][imageSize];
+		
+		//populate images into array
+		for (int i = 0; i < numTestElements; i++) {
+			//read each image as byte array
 			byte[] image = new byte[imageSize];
 			for (int j = 0; j < imageSize; j++) {
 				image[j] = buff.get();
 			}
+			//place into array
 			testImages[i] = image;
 		}
-
+		//close file
 		fin.close();
 	}
-
+	
+	//serialization method for the model
+	//this method will save the weights and biases of the trained model in a specific format
+	//so it can be read and used later
 	public static void saveAnn(Ann ann) throws Exception {
+		//create file with .bin ending
 		FileOutputStream fos = new FileOutputStream("ann.bin");
-
+		
+		//use dataoutputstream class to send floats to ann.bin
 		DataOutputStream dos = new DataOutputStream(fos);
 
 		// put in metadata first
@@ -127,24 +190,31 @@ public class Main {
 
 		// then write weight matrix followed by bias vector for each layer
 		for (int a = 0; a < ann.weightMatrices.length; a++) {
+			//get weights matrix
 			Matrix weightMatrix = ann.weightMatrices[a];
+			//save each component in weights matrix
 			for (int i = 0; i < weightMatrix.matrix.length; i++) {
 				for (int j = 0; j < weightMatrix.matrix[i].length; j++) {
 					dos.writeDouble(weightMatrix.matrix[i][j]);
 				}
 			}
-
+			
+			//get bias vector
 			Vector biasVector = ann.biasVectors[a];
+			//save each component in bias vector
 			for (int i = 0; i < biasVector.vector.length; i++) {
 				dos.writeDouble(biasVector.vector[i]);
 			}
 		}
-
+		
+		//close file
 		dos.close();
 
 		fos.close();
 	}
-
+	
+	//reading from the serialized form of the model
+	//will set all weights and biases to the trained ones in the file
 	public static Ann readAnn() throws Exception {
 		// init file + open it
 		File f = new File("ann.bin");
@@ -152,34 +222,41 @@ public class Main {
 		// read all bytes
 		byte[] data = fin.readAllBytes();
 
-		// wrap in bytebuffer to read
+		// wrap in bytebuffer to read easier
 		ByteBuffer buff = ByteBuffer.wrap(data);
 
 		// read metadata
+		// get num layers
 		int numLayers = buff.getInt();
+		
+		//instantiate layer lengths array
 		int[] layerLengths = new int[numLayers];
+		//traverse and reach each layer's length
 		for (int i = 0; i < numLayers; i++) {
 			// read each layer's length
 			layerLengths[i] = buff.getInt();
+			//print to check
 			System.out.println(layerLengths[i]);
 		}
 
-		// instantiate the ann object
+		// instantiate the ann object using read metadata
 		Ann ann = new Ann(new NetworkParameters(layerLengths));
 
 		// update the weight matrices & bias vectors with whats in the file
 		for (int l = 1; l < numLayers; l++) {
 			//read matrix
 			Matrix weightMatrix = ann.weightMatrices[l-1];
+			//carefully traverse weights matrix (based on how it was saved)
 			for(int i= 0; i< layerLengths[l]; i++) {
 				for(int j= 0; j< layerLengths[l-1]; j++) {
+					//read each component and set according element in the matrix
 					weightMatrix.matrix[i][j] = buff.getDouble();
-					System.out.println(weightMatrix.matrix[i][j]);
 				}
 			}
 			
 			//read bias vector
 			for(int i = 0; i< layerLengths[l]; i++) {
+				//read each component and set into array
 				ann.biasVectors[l-1].vector[i] = buff.getDouble();
 				System.out.println(ann.biasVectors[l-1].vector[i]);
 			}
@@ -192,67 +269,93 @@ public class Main {
 		return ann;
 	}
 
+	//a helper method that reads a generic file and interprets it as an image file
+	//used to test the trained model on out-of-dataset images
+	//ex: a handwritten 7 written by myself is predicted to be a 7 at 98% likelihood by the model
 	public static byte[] readMyFile(String name) throws Exception {
+		//use image io to get a byte representation of the image
 		byte[] abgrImage = ((DataBufferByte) ImageIO.read(new File(name)).getRaster().getDataBuffer()).getData();
+		
+		//transform into grayscale
 		byte[] image = new byte[abgrImage.length / 4];
 		for (int i = 0; i < image.length; i++) {
+			//byte by byte grayscale transform
 			byte actual = (byte) ((abgrImage[i * 4 + 1] + abgrImage[i * 4 + 2] + abgrImage[i * 4 + 3]) / 3);
+			//place back into array
 			image[i] = actual;
 		}
+		//return
 		return image;
 	}
 	
+	//training method for the model
+	//this method will prompt the user for the settings of certain hyperparameters
+	//like batch size and epoch numbers
+	//it will then read the training portion of the MNIST dataset, then train the network
+	//the network is already configured to accept the images and output a classification label (0-9)
+	//it also tracks the average error of the model (MSE) throughout the epoch as a metric for the user
 	public static void trainAnn() throws Exception{
-		
-		System.out.println("Number of training epochs?");
+		//user input init
 		Scanner user = new Scanner(System.in);
+		
+		//prompt for num epochs
+		System.out.println("Number of training epochs?");
 		int numEpochs = user.nextInt();
 		
+		//prompt for batch size
 		System.out.println("Size of training batch?");
 		int n = user.nextInt();
 		
+		//close to prevent resource leak
 		user.close();
 		
+		//read training portion of MNIST dataset
 		readMainSet("train-images.idx3-ubyte", "train-labels.idx1-ubyte");
 
-		// create ann
+		// create the model based on the parameters
 		int[] lengths = { 28 * 28, 20, 10 };
+		//use custom classes for the parameters and the model
 		NetworkParameters annParameters = new NetworkParameters(lengths);
 		Ann ann = new Ann(annParameters);
 
-		// do some training
+		// do the training
 
-		// first split the batch up no replacement
+		// setup the shuffling method (placing indices into a list and shuffling it, then reading in order)
 		ArrayList<Integer> samples = new ArrayList<Integer>();
 		for (int i = 0; i < NUM_IMAGES; i++)
 			samples.add(i);
 
+		//instantiate the custom backpropresults class to hold the gradient accumulated across the entire batch
 		BackpropResults average = new BackpropResults(annParameters);
 
-		// init some parameters
+		// init some other useful training parameters
 		double scale = (1.0) / ((double) n);
+		//indicates the number of training batches underwent in a single training epoch
+		//the floor function is used to only do complete batches
 		int numMiniBatches = (int) Math.floor(60000.0 / n);
 
 		// training for numEpochs epochs
 		for (int epoch = 0; epoch < numEpochs; epoch++) {
+			//mark the start time for timing purposes
 			long start = System.currentTimeMillis();
 			// pre epoch shuffle
-			Collections.shuffle(samples);
 			Collections.shuffle(samples);
 
 			// init final error variable (for printing purposes)
 			double finalError = 0.0;
 
 			// do each minibatch
-			average.zero(); // just in case
+			average.zero(); //reset gradient for each batch in the epoch
+			//loop through each image
 			for (int i = 0; i < n * numMiniBatches; i++) {
-				// get a random training image
+				// get a random training image by getting a random index and pulling from it
 				int index = samples.get(i);
-				// vectorize
+				
+				// vectorize the image
 				Vector input = new Vector(28 * 28);
 				input.parseBytes(images[index]);
 
-				// do the backpropagation
+				// do the backpropagation (backprop method also does forward pass)
 				BackpropResults singleResults = ann.backprop(input, labels[index]);
 
 				// add this backpropagation's results to the aggregate (scale first)
@@ -260,53 +363,61 @@ public class Main {
 					average.biasGradients[j].addVector(singleResults.biasGradients[j].scale(scale));
 					average.weightGradients[j].add(singleResults.weightGradients[j].scale(scale));
 				}
+				//do the same for the MSE metric
 				average.error += singleResults.error * scale;
 
-				// check if the aggregate has been totally accumulated
+				// check if the batch is over
 				if (i % n == 0) {
 					// we do gradient descent based on this batch
 					ann.descendGradient(average);
-					// just for posterity (lol)
-					if (i % (n * numMiniBatches) == 0)
-						finalError = average.error;
-					// zero the average prior to next batch training
+					
+					//accumulate the error across the epoch
+					finalError += average.error * scale * (1.0 / numMiniBatches);
+					
+					// zero the gradient prior to the next batch training
 					average.zero();
 				}
 			}
-
+			
+			//calculate time taken per epoch
 			double time = ((double) (System.currentTimeMillis() - start)) / 1000.0;
 
 			// print out per epoch final error
-			System.out.println("Epoch " + (epoch + 1) + ", ANN's error: " + finalError + ". Time Taken: " + time);
+			System.out.println("Epoch " + (epoch + 1) + ", ANN's MSE error: " + finalError + ". Time Taken (s): " + time);
 
 			// decay the learning rate
 			LEARNING_RATE *= 0.65;
 		}
 
 		// save this ann to a file
-		// really we're saving the weights
 		saveAnn(ann);
 		
-		//just test also
+		//test the ann on the testing set
 		testAnn(ann);
 	}
 	
+	//testing method for the model
+	//tests it on the testing portion of the MNIST dataset (accuracy)
 	public static void testAnn(Ann ann) throws Exception {
+		//read the testing set of MNIST
 		readTestingSet("t10k-images.idx3-ubyte", "t10k-labels.idx1-ubyte");
+		//also read the custom file for testing on out-of-dataset identification skills
 		byte[] seven = readMyFile("my_7.png");
 
-		// randomize the testing dataset
+		// setup the random sampling for the testing set
 		ArrayList<Integer>samples = new ArrayList<Integer>();
 		for (int i = 0; i < 10000; i++) {
 			samples.add(i);
 		}
 		Collections.shuffle(samples);
-
+		
+		//create variable to keep track of each successful identification
 		int numSuccessful = 0;
-		// do testing over the first 9990 testing images
+		// do testing over the testing images
 		for (int i = 0; i < samples.size(); i++) {
 			// get random testing image
 			int index = samples.get(i);
+			
 			// vectorize the image
 			Vector input = new Vector(28 * 28);
 			input.parseBytes(testImages[index]);
@@ -314,11 +425,8 @@ public class Main {
 			// feed it to the ann and get the output
 			Vector prediction = ann.forward(input)[3];
 
-			// determine the ann's selection (which digit did it predict)
-			int max = 0;
-			for (int j = 1; j < prediction.vector.length; j++)
-				if (prediction.vector[j] > prediction.vector[max])
-					max = j;
+			// determine the ann's predicted label based on which had the highest likelihood (greedy selection)
+			int max = prediction.argmax();
 
 			// check if it was correct
 			if (max == testLabels[index]) {
@@ -332,460 +440,39 @@ public class Main {
 		ratio *= 100.0;
 		System.out.println("\nTesting on 10000 accuracy (%): " + ratio);
 
-		// do final prediction on my 7
+		// do final prediction on my (out of dataset) 7
+		//vectorize the image
 		Vector input = new Vector(28 * 28);
 		input.parseBytes(seven);
+		
 		// feed forward
 		Vector prediction = ann.forward(input)[3];
-		System.out.println("\nPrediction for digit (7) outside of dataset (written by me): " + argmax(prediction));
-	}
-	
-	public static int argmax(Vector prediction) {
-		int maxIndex = 0;
-		for(int i = 1; i < prediction.vector.length; i++) {
-			if(prediction.vector[i] > prediction.vector[maxIndex]) {
-				maxIndex = i;
-			}
-		}
-		
-		return maxIndex;
+		//print prediction
+		System.out.println("\nPrediction for digit (7) outside of dataset: " + prediction.argmax());
 	}
 
+	//main function
+	//allows the user to choose whether to train a model or read a prexisting one and test that
 	public static void main(String[] args) throws Exception {
-		System.out.println("Train (0) or read (1)?");
+		//user init
 		Scanner user = new Scanner(System.in);
+		
+		//prompt user
+		System.out.println("Train (0) or read (1)?");
 		String resp = user.next();
+		
+		//select based on answer
 		if(resp.contains("0")) {
+			//train
 			trainAnn();
 		}else if(resp.contains("1")) {
 			//read
 			Ann ann = readAnn();
+			//test as well
 			testAnn(ann);
 		}
 		
+		//close to prevent resource leaks
 		user.close();
 	}
-}
-
-class Vector {
-	// encodes an n-dimensional column vector
-	double[] vector;
-
-	public Vector(int n) {
-		vector = new double[n];
-	}
-
-	public Vector(Vector v) {
-		vector = new double[v.vector.length];
-		for (int i = 0; i < vector.length; i++)
-			vector[i] = v.vector[i];
-	}
-
-	// parse image method
-	public void parseBytes(byte[] arr) {
-		// assume arr.length = vector.length
-		for (int i = 0; i < arr.length; i++) {
-			vector[i] = (arr[i] & 0xFF) / 255.0;
-		}
-	}
-
-	// random init
-	public void randomInit() {
-		Random rand = new Random();
-		for (int i = 0; i < vector.length; i++) {
-			vector[i] = rand.nextGaussian();
-		}
-	}
-
-	public void zeroInit() {
-		for (int i = 0; i < vector.length; i++) {
-			vector[i] = 0.0;
-		}
-	}
-
-	// matrix multiply with vector
-	public static Vector matrixMultiply(Matrix m, Vector v) {
-		if (m.matrix[0].length != v.vector.length)
-			return null;
-		// now multiply
-		Vector res = new Vector(m.matrix.length);
-		for (int i = 0; i < res.vector.length; i++) {
-			double val = 0.0;
-			for (int j = 0; j < v.vector.length; j++) {
-				val += v.vector[j] * m.matrix[i][j];
-			}
-			res.vector[i] = val;
-		}
-		return res;
-	}
-
-	// matrix multiply with vector, except with the transpose of vector
-	public static Vector matrixMultiplyTransposed(Matrix m, Vector v) {
-		if (m.matrix.length != v.vector.length)
-			return null;
-		// flip dimen
-		Vector res = new Vector(m.matrix[0].length);
-		for (int i = 0; i < res.vector.length; i++) {
-			double val = 0.0;
-			for (int j = 0; j < m.matrix.length; j++) {
-				// swap order of traversal
-				val += v.vector[j] * m.matrix[j][i];
-			}
-			res.vector[i] = val;
-		}
-		return res;
-	}
-
-	// add a vector to this vector
-	public void addVector(Vector v) {
-		for (int i = 0; i < this.vector.length; i++) {
-			this.vector[i] += v.vector[i];
-		}
-	}
-
-	public void subtractVector(Vector v) {
-		for (int i = 0; i < this.vector.length; i++) {
-			this.vector[i] -= v.vector[i];
-		}
-	}
-
-	// activation function
-	private double activate(double x) {
-		return (x > 0) ? (x) : (0);
-	}
-
-	private double activateDerivative(double x) {
-		return (x > 0) ? (1) : (0);
-	}
-
-	// vectorial form
-	public void activate(int layer) {
-		if (layer == 1) {
-			double max = -Double.MAX_VALUE;
-			for (int i = 0; i < vector.length; i++)
-				if (vector[i] > max)
-					max = vector[i];
-			double sum = 0.0;
-			for (int i = 0; i < vector.length; i++)
-				sum += Math.exp(vector[i] - max);
-			for (int i = 0; i < vector.length; i++)
-				vector[i] = Math.exp(vector[i] - max) / sum;
-		} else {
-			for (int i = 0; i < vector.length; i++)
-				vector[i] = activate(vector[i]);
-		}
-	}
-
-	// another vectorial form
-	// replaces each component in this vector with the activation function's
-	// derivative at that point
-	public void activateDerivative(int layer) {
-		if (layer != 2) {
-			for (int i = 0; i < vector.length; i++)
-				vector[i] = activateDerivative(vector[i]);
-		} else {
-			System.out.println("WHAT");
-		}
-	}
-
-	@Override
-	public String toString() {
-		String msg = "(";
-		for (int i = 0; i < vector.length; i++) {
-			msg += String.valueOf(vector[i]);
-			if (i != vector.length - 1) {
-				msg += ", ";
-			} else {
-				msg += ")";
-			}
-		}
-		return msg;
-	}
-
-	// pretty self explanatory
-	// sum the components
-	public double sumComponents() {
-		double sum = 0.0;
-		for (int i = 0; i < vector.length; i++)
-			sum += vector[i];
-		return sum;
-	}
-
-	// hamard product implementation
-	public void hamardProduct(Vector in) {
-		for (int i = 0; i < vector.length; i++)
-			vector[i] *= in.vector[i];
-	}
-
-	public static Vector hamardProduct(Vector in1, Vector in2) {
-		for (int i = 0; i < in1.vector.length; i++)
-			in1.vector[i] *= in2.vector[i];
-		return in1;
-	}
-
-	// scales and returns a new vector (not state editing)
-	public Vector scale(double scale) {
-		Vector res = new Vector(vector.length);
-		for (int i = 0; i < res.vector.length; i++) {
-			res.vector[i] = vector[i] * scale;
-		}
-		return res;
-	}
-}
-
-class Matrix {
-	// encodes a MxN matrix
-	double[][] matrix;
-
-	public Matrix(int rows, int columns) {
-		// random init
-		matrix = new double[rows][columns];
-	}
-
-	public void randomInit(double skew) {
-		Random rand = new Random();
-		for (int i = 0; i < matrix.length; i++) {
-			for (int j = 0; j < matrix[i].length; j++) {
-				matrix[i][j] = rand.nextGaussian() * skew;
-			}
-		}
-	}
-
-	public void zeroInit() {
-		for (int i = 0; i < matrix.length; i++) {
-			for (int j = 0; j < matrix[i].length; j++) {
-				matrix[i][j] = 0.0;
-			}
-		}
-	}
-
-	public static Matrix outerProduct(Vector a, Vector b) {
-		Matrix res = new Matrix(a.vector.length, b.vector.length);
-		for (int i = 0; i < a.vector.length; i++) {
-			for (int j = 0; j < b.vector.length; j++) {
-				res.matrix[i][j] = a.vector[i] * b.vector[j];
-			}
-		}
-		return res;
-	}
-
-	// scales and returns a new matrix (not state editing)
-	public Matrix scale(double scale) {
-		Matrix res = new Matrix(matrix.length, matrix[0].length);
-		for (int i = 0; i < res.matrix.length; i++) {
-			for (int j = 0; j < res.matrix[0].length; j++) {
-				res.matrix[i][j] = matrix[i][j] * scale;
-			}
-		}
-		return res;
-	}
-
-	// state editing
-	// same as vector (component wise subtraction)
-	public void subtract(Matrix m) {
-		for (int i = 0; i < this.matrix.length; i++) {
-			for (int j = 0; j < this.matrix[i].length; j++) {
-				this.matrix[i][j] -= m.matrix[i][j];
-			}
-		}
-	}
-
-	// state editing
-	// same as vector (component wise addition)
-	public void add(Matrix m) {
-		for (int i = 0; i < this.matrix.length; i++) {
-			for (int j = 0; j < this.matrix[i].length; j++) {
-				this.matrix[i][j] += m.matrix[i][j];
-			}
-		}
-	}
-
-	@Override
-	public String toString() {
-		StringBuilder msg = new StringBuilder();
-		for (int i = 0; i < matrix.length; i++) {
-			msg.append("(");
-			for (int j = 0; j < matrix[i].length; j++) {
-				msg.append(matrix[i][j]);
-				if (j != matrix[i].length - 1)
-					msg.append(", ");
-			}
-			msg.append(")\n");
-		}
-		return msg.toString();
-	}
-}
-
-class Ann {
-	Matrix[] weightMatrices;
-	Vector[] biasVectors;
-
-	NetworkParameters params;
-
-	public Ann(NetworkParameters params) {
-		this.params = params;
-
-		weightMatrices = new Matrix[params.layers.length - 1];
-		biasVectors = new Vector[params.layers.length - 1];
-
-		// start at i = 1 because we ignore input layer (no bias vector for input layer)
-		for (int i = 1; i < params.layers.length; i++) {
-			int prevLength = params.layers[i - 1].length;
-			int length = params.layers[i].length;
-
-			biasVectors[i - 1] = new Vector(length);
-			biasVectors[i - 1].randomInit();
-
-			weightMatrices[i - 1] = new Matrix(length, prevLength);
-			weightMatrices[i - 1].randomInit(Math.sqrt(2.0 / (prevLength + length)));
-		}
-	}
-
-	public Vector[] forward(Vector input) {
-		Vector[] everyVector = new Vector[2 * weightMatrices.length];
-		for (int i = 0; i < weightMatrices.length; i++) {
-			if (i == 0) {
-				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], input);
-			} else {
-				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], everyVector[i - 1]);
-			}
-
-			everyVector[i * 2].addVector(biasVectors[i]);
-			everyVector[i * 2 + 1] = new Vector(everyVector[i * 2]);
-			everyVector[i * 2 + 1].activate(i);
-		}
-		return everyVector;
-	}
-
-	public BackpropResults backprop(Vector input, int digit) {
-		Vector[] everyVector = forward(input);
-		Vector[] layerErrors = new Vector[weightMatrices.length];
-		// construct actual value vector
-		Vector actual = Ann.constructActual(digit);
-		// partial of cost wrt activation of final nodes is just the activation - actual
-		// then multiply by d/dx activation for partial of cost wrt of z of final layer
-		// (first backprop chain rule use)
-		// also error of layer f (final layer) (bp eq 1)
-		Vector deriv = new Vector(everyVector[everyVector.length - 2]);
-		deriv.activateDerivative(0);
-		layerErrors[weightMatrices.length - 1] = new Vector(everyVector[everyVector.length - 1]);
-		layerErrors[weightMatrices.length - 1].subtractVector(actual);
-		double error = 0.0;
-		for (int i = 0; i < layerErrors[weightMatrices.length - 1].vector.length; i++) {
-			error += Math.pow(layerErrors[weightMatrices.length - 1].vector[i], 2.0);
-		}
-		error *= 0.5;
-		// layerErrors[weightMatrices.length - 1].hamardProduct(deriv);
-
-		// then recursively apply bp eq 2 to propagate error through layers
-		for (int l = weightMatrices.length - 1; l > 0; l--) {
-			// calc deriv of z of the previous layer
-			Vector prevDeriv = new Vector(everyVector[(l - 1) * 2]);
-			prevDeriv.activateDerivative(l - 1);
-
-			// then calc error
-			layerErrors[l - 1] = Vector.matrixMultiplyTransposed(weightMatrices[l], layerErrors[l]);
-			layerErrors[l - 1].hamardProduct(prevDeriv);
-		}
-		BackpropResults res = new BackpropResults(this.params);
-		res.biasGradients = new Vector[weightMatrices.length];
-		res.weightGradients = new Matrix[weightMatrices.length];
-		// now update weights & biases using gradient descent (since we can calculate
-		// gradient based on layer errors)
-		for (int l = 0; l < weightMatrices.length; l++) {
-			// bp eq 3
-			Matrix weightGradient = Matrix.outerProduct(layerErrors[l],
-					(l == 0) ? (input) : (everyVector[(l - 1) * 2 + 1]));
-			res.weightGradients[l] = weightGradient.scale(Main.LEARNING_RATE);
-			// bp eq 4
-			res.biasGradients[l] = layerErrors[l].scale(Main.LEARNING_RATE);
-		}
-		res.error = error;
-		return res;
-	}
-
-	public void descendGradient(BackpropResults average) {
-		for (int l = 0; l < weightMatrices.length; l++) {
-			weightMatrices[l].subtract(average.weightGradients[l]);
-			biasVectors[l].subtractVector(average.biasGradients[l]);
-		}
-	}
-
-	public static Vector constructActual(int digit) {
-		Vector v = new Vector(10);
-		for (int i = 0; i < v.vector.length; i++)
-			v.vector[i] = 0.0;
-		v.vector[digit] = 1.0;
-		return v;
-	}
-}
-
-class BackpropResults {
-	Vector[] biasGradients;
-	Matrix[] weightGradients;
-	double error;
-
-	public BackpropResults(NetworkParameters params) {
-		weightGradients = new Matrix[params.layers.length - 1];
-		biasGradients = new Vector[params.layers.length - 1];
-
-		// start at i = 1 because we ignore input layer (no bias vector for input layer)
-		for (int i = 1; i < params.layers.length; i++) {
-			int prevLength = params.layers[i - 1].length;
-			int length = params.layers[i].length;
-
-			biasGradients[i - 1] = new Vector(length);
-			biasGradients[i - 1].zeroInit();
-
-			weightGradients[i - 1] = new Matrix(length, prevLength);
-			weightGradients[i - 1].zeroInit();
-		}
-	}
-
-	public void zero() {
-		// make everything set to 0
-		for (int i = 0; i < biasGradients.length; i++) {
-			biasGradients[i].zeroInit();
-		}
-
-		for (int a = 0; a < weightGradients.length; a++) {
-			weightGradients[a].zeroInit();
-		}
-
-		error = 0.0;
-	}
-
-	@Override
-	public String toString() {
-		StringBuilder msg = new StringBuilder();
-		msg.append("Bias Vectors: \n");
-		for (int i = 0; i < biasGradients.length; i++)
-			msg.append(biasGradients[i].toString() + "\n");
-		msg.append("Weight Gradients: \n");
-		for (int i = 0; i < weightGradients.length; i++)
-			msg.append(weightGradients[i].toString() + "\n");
-		return msg.toString();
-	}
-}
-
-class NetworkParameters {
-	Layer[] layers;
-
-	public NetworkParameters(int[] layerLengths) {
-		// layerLengths array has to be greater than 1 layer
-		if (layerLengths.length <= 1) {
-			System.err.println("Cannot create network with 1 layer");
-			System.exit(0);
-		}
-		layers = new Layer[layerLengths.length];
-		for (int i = 0; i < layerLengths.length; i++) {
-			Layer layer = new Layer();
-			layer.length = layerLengths[i];
-			layers[i] = layer;
-		}
-	}
-}
-
-class Layer {
-	int length;
 }

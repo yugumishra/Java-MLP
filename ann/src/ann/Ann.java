@@ -1,0 +1,131 @@
+package ann;
+
+
+
+//actual model class
+//holds the model and its layers through weight matrices and bias vectors
+//it also has a parameters object that defines its structure
+public class Ann {
+	//layers (stored as matrices and bias vectors)
+	Matrix[] weightMatrices;
+	Vector[] biasVectors;
+	
+	//parameters of the model
+	NetworkParameters params;
+	
+	//constructor that constructs the model based on the provided parameters
+	public Ann(NetworkParameters params) {
+		this.params = params;
+		
+		//initialization of the layers
+		weightMatrices = new Matrix[params.layers.length - 1];
+		biasVectors = new Vector[params.layers.length - 1];
+
+		// start at i = 1 because we ignore input layer (no bias vector for input layer)
+		for (int i = 1; i < params.layers.length; i++) {
+			//get the lengths for each layer
+			int prevLength = params.layers[i - 1].length;
+			int length = params.layers[i].length;
+			
+			//instantiate bias vector with random (unit gaussian) initialization
+			biasVectors[i - 1] = new Vector(length);
+			biasVectors[i - 1].randomInit();
+			
+			//instantiate weight matrix with glorot initialization
+			weightMatrices[i - 1] = new Matrix(length, prevLength);
+			weightMatrices[i - 1].randomInit(Math.sqrt(2.0 / (prevLength + length)));
+		}
+	}
+	
+	//forward pass of the network
+	//takes the input vector and passes it through the model (matrix multiplies + bias additions as well as activations)
+	//the output is the output vectors of each layer
+	public Vector[] forward(Vector input) {
+		//create the list of outputs for each layer
+		Vector[] everyVector = new Vector[2 * weightMatrices.length];
+		//iterate through layers
+		for (int i = 0; i < weightMatrices.length; i++) {
+			//weights multiply
+			if (i == 0) {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], input);
+			} else {
+				everyVector[i * 2] = Vector.matrixMultiply(weightMatrices[i], everyVector[i - 1]);
+			}
+			//bias addition
+			everyVector[i * 2].addVector(biasVectors[i]);
+			//duplication
+			everyVector[i * 2 + 1] = new Vector(everyVector[i * 2]);
+			//activation
+			everyVector[i * 2 + 1].activate(i);
+		}
+		return everyVector;
+	}
+	
+	//backpropagates the error in an image based on the input image and the correct label
+	//returns the gradient as a backpropresults instance (for aggregation)
+	//is based on the 4 backprop equations
+	public BackpropResults backprop(Vector input, int digit) {
+		Vector[] everyVector = forward(input);
+		Vector[] layerErrors = new Vector[weightMatrices.length];
+		// construct actual value vector
+		Vector actual = Ann.constructActual(digit);
+		// partial of cost wrt activation of final nodes is just the activation - actual
+		// then multiply by d/dx activation for partial of cost wrt of z of final layer
+		// (first backprop chain rule use)
+		// also error of layer f (final layer) (bp eq 1)
+		Vector deriv = new Vector(everyVector[everyVector.length - 2]);
+		deriv.activateDerivative(0);
+		layerErrors[weightMatrices.length - 1] = new Vector(everyVector[everyVector.length - 1]);
+		layerErrors[weightMatrices.length - 1].subtractVector(actual);
+		double error = 0.0;
+		for (int i = 0; i < layerErrors[weightMatrices.length - 1].vector.length; i++) {
+			error += Math.pow(layerErrors[weightMatrices.length - 1].vector[i], 2.0);
+		}
+		error *= 0.5;
+
+		// then recursively apply bp eq 2 to propagate error through layers
+		for (int l = weightMatrices.length - 1; l > 0; l--) {
+			// calc deriv of z of the previous layer
+			Vector prevDeriv = new Vector(everyVector[(l - 1) * 2]);
+			prevDeriv.activateDerivative(l - 1);
+
+			// then calc error
+			layerErrors[l - 1] = Vector.matrixMultiplyTransposed(weightMatrices[l], layerErrors[l]);
+			layerErrors[l - 1].hamardProduct(prevDeriv);
+		}
+		BackpropResults res = new BackpropResults(this.params);
+		res.biasGradients = new Vector[weightMatrices.length];
+		res.weightGradients = new Matrix[weightMatrices.length];
+		// now update weights & biases using gradient descent (since we can calculate
+		// gradient based on layer errors)
+		for (int l = 0; l < weightMatrices.length; l++) {
+			// bp eq 3
+			Matrix weightGradient = Matrix.outerProduct(layerErrors[l],
+					(l == 0) ? (input) : (everyVector[(l - 1) * 2 + 1]));
+			res.weightGradients[l] = weightGradient.scale(Main.LEARNING_RATE);
+			// bp eq 4
+			res.biasGradients[l] = layerErrors[l].scale(Main.LEARNING_RATE);
+		}
+		res.error = error;
+		return res;
+	}
+
+	//simple utility for applying a gradient in the form of a backpropresults instance
+	//note: this method always descends the gradient (always subtract)
+	//for gradient ascension tasks, you would scale the gradient by -1
+	public void descendGradient(BackpropResults average) {
+		for (int l = 0; l < weightMatrices.length; l++) {
+			weightMatrices[l].subtract(average.weightGradients[l]);
+			biasVectors[l].subtractVector(average.biasGradients[l]);
+		}
+	}
+	
+	//utility that one-hot encodes the correct label
+	public static Vector constructActual(int digit) {
+		Vector v = new Vector(10);
+		for (int i = 0; i < v.vector.length; i++)
+			v.vector[i] = 0.0;
+		v.vector[digit] = 1.0;
+		return v;
+	}
+}
