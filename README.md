@@ -1,7 +1,7 @@
 # Java-MLP
-A Java based MLP implementation built with standard java libraries capable of the MNIST identification task (~92% accuracy)
+A Java based MLP implementation built with standard java libraries capable of the MNIST identification task (~96% accuracy)
 
-The code features a model system in which the structure of an MLP can be very easily generated. It also features custom Vector and Matrix classes in which all of the linear algebra is done. Backpropagation is also done manually, and the model learns through Stochastic Gradient Descent. Since this is a basic implementation of an MLP, it does not have advanced features like Batch Normalization or more advanced optimizers like Adam or RMSProp. This makes the achieved performance that much more amazing, since ~92% accuracy is not far off from human classification levels. 
+The code features a model system in which the structure of an MLP can be very easily generated. It also features custom Vector and Matrix classes in which all of the linear algebra is done. Backpropagation is also done manually, and the model learns through Stochastic Gradient Descent. Since this is a basic implementation of an MLP, it does not have advanced features like Batch Normalization or more advanced optimizers like Adam or RMSProp. This makes the achieved performance that much more amazing, since ~96% accuracy is not far off from human classification levels. 
 
 The entire code is within ~1k lines of code, and does the i/o for MNIST itself. It can also serialize the model for later training. The model is also tested on out of dataset images and can apply its learned patterns to those as well (it can identify a 7 that I wrote myself with 98% confidence). 
 
